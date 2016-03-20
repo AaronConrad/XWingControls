@@ -1,0 +1,630 @@
+<html>
+    <!-- Author: Aaron Conrad  -- Team Member: Keith McAfee -->
+<head>
+    <title>Control Test</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {margin: 0;}
+        canvas {width: 100%; height: 100%}
+    </style>
+</head>
+
+<body>
+    <script src="js/libs/dat-gui/dat.gui.js"></script>
+    <script src="js/libs/three.js/three.min.js"></script>
+
+    <script>
+        // CONSTANTS ***********************************************************
+        // *********************************************************************
+        // DO NOT MAKE ANY OF THESE NEGATIVE VALUES
+        var c = {
+            SHIP_MAX_ROTATION_X: 16,       //In degrees
+            SHIP_MAX_ROTATION_Z: 30,
+            SHIP_ROT_STEP_X: 1,            //In degrees per frame (must go into
+            SHIP_ROT_STEP_Z: 2,            //MAX_ROTATION evenly)
+        
+            SHIP_MAX_POSITION_X: 20,       //In whole steps
+            SHIP_MAX_POSITION_Y: 10,
+        
+            POSITION_STEP_X: 0.5,          //In whole steps per frame (must go
+            POSITION_STEP_Y: 0.5,          //into MAX_POSITION evenly)
+            SHIP_MIN_SPEED: 1,             //In whole steps per frame
+            SHIP_MAX_SPEED: 4,
+            SHIP_SPEED_STEP: 0,
+            SHIP_ANIMATION_SPEED: 60,      //# of frames for speed up/down animation
+            
+            WING_MAX_ROTATION: 15,         //How far the wings can open in degrees
+            WING_ROT_STEP: 0,
+        
+            CAM_MAX_POSITION_X: 16,        //In whole steps per frame
+            CAM_MAX_POSITION_Y: 8,
+            CAM_TRAIL_DISTANCE: 10,        //In whole steps
+            
+            CAM_FIRST_X: 0,                //Camera offset needed to have the
+            CAM_FIRST_Y: 1,                //1st-person camera align to the 
+            CAM_FIRST_Z: -1.5                //cockpit
+        };
+        // Take 60 frames to go from lowest speed to highest, and back
+        c.SHIP_SPEED_STEP = (c.SHIP_MAX_SPEED - c.SHIP_MIN_SPEED) / c.SHIP_ANIMATION_SPEED;
+        c.WING_ROT_STEP = c.WING_MAX_ROTATION / c.SHIP_ANIMATION_SPEED;
+
+        // Keyboard Control Codes
+        var KEY_MOVE_L = 37;
+        var KEY_MOVE_R = 39;
+        var KEY_MOVE_U = 38;
+        var KEY_MOVE_D = 40;
+        var KEY_FAST = 32;
+        var KEY_ROLL_CC = 65;
+        var KEY_ROLL_C = 83;
+        var KEY_SPIN_CC = 68;
+        var KEY_SPIN_C = 70;
+
+        var CAM_FIRST = 'First';
+        var CAM_THIRD = 'Third';
+        
+        var LEFT = 'L';
+        var RIGHT = 'R';
+        var UP = 'U';
+        var DOWN = 'D';
+        var INCREASE = 'I';
+        var DECREASE = 'D';
+
+        // SHIP AND CAMERA VARIABLES *******************************************
+        // *********************************************************************
+        var shipParams = {
+            x: 0,           // [-SHIP_MAX_POSITION_X, SHIP_MAX_POSITION_X]
+            y: 0,           // [-SHIP_MAX_POSITION_Y, SHIP_MAX_POSITION_Y]
+            z: 0,
+            rotX: 0,        // [-SHIP_MAX_ROTATION_X, SHIP_MAX_ROTATION_X]
+            rotZ: 0,        // (-360, 360)
+            wingRot: c.WING_MAX_ROTATION,    // [0, WING_MAX_ROTATION]
+            moveX: false,
+            moveY: false,
+            roll: false,
+            spin: false,
+            speed: c.SHIP_MIN_SPEED   // [SHIP_MIN_SPEED, SHIP_MAX_SPEED]
+        };
+        var camParams = {
+            type: CAM_THIRD,
+            x: 0,           // [-CAM_MAX_POSITION_X, CAM_MAX_POSITION_X]
+            y: 0,           // [-CAM_MAX_POSITION_Y, CAM_MAX_POSITION_Y]
+            rotX: 0,        // [-SHIP_MAX_ROTATION_X, SHIP_MAX_ROTATION]
+            rotZ: 0,        // (-360, 360)
+            z: c.CAM_TRAIL_DISTANCE
+        };
+        
+        // INIT GUI ************************************************************
+        // *********************************************************************
+        var gui = new dat.GUI({width: 350});
+        //Debugging menu
+        var folder1 = gui.addFolder('Debugging');
+        folder1.add(shipParams, 'x').name('Ship X Coord').listen();
+        folder1.add(shipParams, 'y').name('Ship Y Coord').listen();
+        folder1.add(shipParams, 'z').name('Ship Z Coord').listen();
+        folder1.add(shipParams, 'speed').name('Speed').listen();
+        folder1.add(shipParams, 'rotX').name('Ship X Rotate').listen();
+        folder1.add(shipParams, 'rotZ').name('Ship Z Rotate').listen();
+        folder1.add(shipParams, 'moveX').name('isMovingX').listen();
+        folder1.add(shipParams, 'moveY').name('isMovingY').listen();
+        folder1.add(shipParams, 'roll').name('isRolling').listen();
+        folder1.add(shipParams, 'spin').name('isSpinning').listen();
+        folder1.add(camParams, 'x').name('Cam X Coord').listen();
+        folder1.add(camParams, 'y').name('Cam Y Coord').listen();
+        folder1.add(camParams, 'rotZ').name('Cam Z Rotate').listen();
+        folder1.open();
+        
+        //Control menu
+        var folder2 = gui.addFolder('Experimenting');
+        var camType = folder2.add(camParams, 'type', [CAM_THIRD, CAM_FIRST]).name('Camera Type');
+        folder2.add(c, 'SHIP_MAX_POSITION_X').min(0).step(1);
+        folder2.add(c, 'POSITION_STEP_X').min(0).step(0.5);
+        folder2.add(c, 'SHIP_MAX_POSITION_Y').min(0).step(1);
+        folder2.add(c, 'POSITION_STEP_Y').min(0).step(0.5);
+        var minSpeed = folder2.add(c, 'SHIP_MIN_SPEED').min(0);
+        var maxSpeed = folder2.add(c, 'SHIP_MAX_SPEED').min(0);
+        folder2.add(c, 'SHIP_MAX_ROTATION_X').min(0).step(1);
+        folder2.add(c, 'SHIP_ROT_STEP_X').min(0.5).step(0.5);
+        folder2.add(c, 'SHIP_MAX_ROTATION_Z').min(0).step(1);
+        folder2.add(c, 'SHIP_ROT_STEP_Z').min(0.5).step(0.5);
+        folder2.add(c, 'WING_MAX_ROTATION').min(0).step(1);
+        folder2.add(c, 'CAM_MAX_POSITION_X').min(0).step(1);
+        folder2.add(c, 'CAM_MAX_POSITION_Y').min(0).step(1);
+        var camTrail = folder2.add(c, 'CAM_TRAIL_DISTANCE').step(1);
+        var animateSpeed = folder2.add(c, 'SHIP_ANIMATION_SPEED').min(1).step(1);
+        folder2.open();
+        
+        gui.open();
+        
+        // INIT SCENE **********************************************************
+        // *********************************************************************
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.up = new THREE.Vector3(0, 1, 0);
+        camera.position.set(0, 0, c.CAM_TRAIL_DISTANCE);
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        var amblight = new THREE.AmbientLight(0xeeeeee);
+        scene.add(amblight);
+    
+        var ship, wing1, wing2;
+        //TEXTURE LOADER
+        var loader = new THREE.JSONLoader();
+        loader.load("./models/Body.json", function(geometry, materials) {
+            ship = new THREE.Mesh(geometry, materials[0]);
+            ship.scale.set(1, 1, 1);
+            ship.position.set(shipParams.x, shipParams.y, shipParams.z);
+            scene.add(ship);
+        });
+        var loader = new THREE.JSONLoader();
+        loader.load("./models/Wing1.json", function(geometry, materials) {
+            wing1 = new THREE.Mesh(geometry, materials[0]);
+            wing1.scale.set(1, 1, 1);
+            wing1.position.set(shipParams.x, shipParams.y, shipParams.z + 2);
+            ship.add(wing1);
+        });
+        var loader = new THREE.JSONLoader();
+        loader.load("./models/Wing2.json", function(geometry, materials) {
+            wing2 = new THREE.Mesh(geometry, materials[0]);
+            wing2.scale.set(1, 1, 1);
+            wing2.position.set(shipParams.x, shipParams.y, shipParams.z + 2);
+            ship.add(wing2);
+        });
+        var loader = new THREE.JSONLoader();
+        loader.load("./models/Cockpit.json", function(geometry, materials) {
+            cockpit = new THREE.Mesh(geometry, materials[0]);
+            cockpit.scale.set(1, 1, 1);
+            cockpit.position.set(shipParams.x, shipParams.y, shipParams.z + 2);
+            ship.add(cockpit);
+            
+        });
+                
+        var floor = [];
+        var floorGeo = new THREE.BoxGeometry(16,1,64);
+        var floorMaterial;
+        for (var i = 0; i < 32; i++) {
+            //http://stackoverflow.com/questions/1484506/random-color-generator-in-javascript
+            floorMaterial = new THREE.MeshBasicMaterial({color: '#'+(Math.random()*0xFFFFFF<<0).toString(16)});
+            floor[i] = new THREE.Mesh(floorGeo, floorMaterial);
+            floor[i].position.set(0,-10,-i*64-32);
+            scene.add(floor[i]);
+        }
+        
+        //var collidableMeshList = [];
+
+        var obstacles = [];
+        var obsGeo;
+        var obsMaterial = new THREE.MeshBasicMaterial({color: 0xaaaaaa, wireframe: true});
+        for (var i = 0; i < 32; i++) {
+            obsGeo = new THREE.BoxGeometry(Math.random() * 16, Math.random() * 16, 4);
+            obstacles[i] = new THREE.Mesh(obsGeo, obsMaterial);
+            obstacles[i].position.set(Math.random() * 16 - 8, 0, -i*64-32);
+            scene.add(obstacles[i]);
+            //collidableMeshList.push(obstacles[i]);
+        }
+
+        var keys = [];      //Which keyboard keys are currently being pressed
+        
+        
+        // SHIP AND CAMERA PLACEMENT HANDLERS **********************************
+        // *********************************************************************
+        
+        //This function reorients the ship when some or all of the keyboard keys
+        //are unpressed. Position, rolling, and spinning each have their own
+        //movement pattern, so each have their own pattern to return to normal.
+        var neutralizeRot = function() {
+            //If not moving and not rolling and not spinning, fix both ship rotation axis
+            if ((!shipParams.moveX || !shipParams.moveY) && (!shipParams.roll && !shipParams.spin)) {
+                // Fix up-down axis if ship is not moving up or down
+                if (shipParams.rotX !== 0 && !shipParams.moveY) {
+                    if (shipParams.rotX < 0) {
+                        shipParams.rotX += c.SHIP_ROT_STEP_X;
+                    }
+                    else {
+                        shipParams.rotX -= c.SHIP_ROT_STEP_X;
+                    }
+                }
+                // Fix left-right axis if ship is not moving left or right.
+                // The extra logic is to make the ship take the shortest amount
+                // of time to arrive at neutral.
+                if (shipParams.rotZ !== 0 && !shipParams.moveX) {
+                    if (shipParams.rotZ < 0 && shipParams.rotZ >= -180 || shipParams.rotZ > 180) {
+                        shipParams.rotZ += c.SHIP_ROT_STEP_Z;
+                    }
+                    else if (shipParams.rotZ > 0 && shipParams.rotZ <= 180 || shipParams.rotZ < -180){
+                        shipParams.rotZ -= c.SHIP_ROT_STEP_Z;
+                    }
+                }
+            }
+            //If not moving but still rolling or spinning, fix only X rotation axis
+            else if (!shipParams.moveX && (shipParams.roll || shipParams.spin)) {
+                if (shipParams.rotX !== 0) {
+                    if (shipParams.rotX < 0) {
+                        shipParams.rotX += c.SHIP_ROT_STEP_X;
+                    }
+                    else {
+                        shipParams.rotX -= c.SHIP_ROT_STEP_X;
+                    }
+                }
+            }
+            if (!shipParams.roll) {
+                if (camParams.rotZ !== 0) {
+                    if (camParams.rotZ < 0 && camParams.rotZ >= -180 || camParams.rotZ > 180) {
+                        camParams.rotZ += c.SHIP_ROT_STEP_Z;
+                    }
+                    else if (camParams.rotZ > 0 && camParams.rotZ <= 180 || camParams.rotZ < -180){
+                        camParams.rotZ -= c.SHIP_ROT_STEP_Z;
+                    }
+                }
+            }
+        };
+        
+        //Moves ship left, right, up, or down depending on the provided
+        //direction. The ship also "banks" into the turn by rotating. If the
+        //ship's outer boundaries are reached, it may not proceed further and
+        //also stops rotating. The ship may not rotate when rolling or spinning,
+        //but can still move.
+        var setPosition = function(direction) {
+            switch (direction) {
+                //Left Arrow Key
+                case LEFT:
+                    if (shipParams.x > -c.SHIP_MAX_POSITION_X) {
+                        shipParams.x -= c.POSITION_STEP_X;
+                        if (shipParams.rotZ < c.SHIP_MAX_ROTATION_Z && !shipParams.roll && !shipParams.spin) {
+                            shipParams.rotZ += c.SHIP_ROT_STEP_Z;
+                        }
+                        shipParams.moveX = true;
+                    }
+                    break;
+                //Up Arrow Key
+                case UP:
+                    if (shipParams.y < c.SHIP_MAX_POSITION_Y) {
+                        shipParams.y += c.POSITION_STEP_Y;
+                        if (shipParams.rotX < c.SHIP_MAX_ROTATION_X && !shipParams.roll && !shipParams.spin) {
+                            shipParams.rotX += c.SHIP_ROT_STEP_X;
+                        }
+                        shipParams.moveY = true;
+                    }
+                    break;
+                //Right Arrow Key
+                case RIGHT:
+                    if (shipParams.x < c.SHIP_MAX_POSITION_X) {
+                        shipParams.x += c.POSITION_STEP_X;
+                        if (shipParams.rotZ > -c.SHIP_MAX_ROTATION_Z && !shipParams.roll && !shipParams.spin) {
+                            shipParams.rotZ -= c.SHIP_ROT_STEP_Z;
+                        }
+                        shipParams.moveX = true;
+                    }
+                    break;
+                //Down Arrow Key
+                case DOWN:
+                    if (shipParams.y > -c.SHIP_MAX_POSITION_Y) {
+                        shipParams.y -= c.POSITION_STEP_Y;
+                        if (shipParams.rotX > -c.SHIP_MAX_ROTATION_X && !shipParams.roll && !shipParams.spin) {
+                            shipParams.rotX -= c.SHIP_ROT_STEP_X;
+                        }
+                        shipParams.moveY = true;
+                    }
+            }
+        };
+        
+        //Moves camera left, right, up, or down, but does not rotate.  The
+        //camera wlll not move past its maximum boundary.  If the ship is beyond
+        //the camera's boundary, the camera will wait for the ship to get in the
+        //boundary before moving with the ship again.
+        var setCamPosition = function(direction) {
+            switch (direction) {
+                //Left Arrow Key
+                case LEFT:
+                    if (camParams.x > -c.CAM_MAX_POSITION_X && shipParams.x < c.CAM_MAX_POSITION_X) {
+                        camParams.x -= c.POSITION_STEP_X;
+                    }
+                    break;
+                //Up Arrow Key
+                case UP:
+                    if (camParams.y < c.CAM_MAX_POSITION_Y && shipParams.y > -c.CAM_MAX_POSITION_Y) {
+                        camParams.y += c.POSITION_STEP_Y;
+                    }
+                    break;
+                //Right Arrow Key
+                case RIGHT:
+                    if (camParams.x < c.CAM_MAX_POSITION_X && shipParams.x > -c.CAM_MAX_POSITION_X) {
+                        camParams.x += c.POSITION_STEP_X;
+                    }
+                    break;
+                //Down Arrow Key
+                case DOWN:
+                    if (camParams.y > -c.CAM_MAX_POSITION_Y && shipParams.y < c.CAM_MAX_POSITION_Y) {
+                        camParams.y -= c.POSITION_STEP_Y;
+                    }
+                    break;
+            }
+        };
+        
+        //Rotates the ship without bound (+- 360 degrees) without moving the
+        //camera. Note that a roll and spin can be performed at the same time.
+        var setSpin = function(direction) {
+            shipParams.spin = true;
+            switch (direction) {
+                case LEFT:
+                    shipParams.rotZ += c.SHIP_ROT_STEP_Z;
+                    break;
+                case RIGHT:
+                    shipParams.rotZ -= c.SHIP_ROT_STEP_Z;
+            }
+        };
+        
+        //Performs a spin, but the camera rotates as well by the same amount as
+        //the ship. Note that a roll and spin can be performed at the same time.
+        var setRoll = function(direction) {
+            shipParams.roll = true;
+            switch (direction) {
+                case LEFT:
+                    shipParams.rotZ += c.SHIP_ROT_STEP_Z;
+                    camParams.rotZ += c.SHIP_ROT_STEP_Z;
+                    break;
+                case RIGHT:
+                    shipParams.rotZ -= c.SHIP_ROT_STEP_Z;
+                    camParams.rotZ -= c.SHIP_ROT_STEP_Z;
+            }
+        };
+        
+        //Increase or decreases the forward speed depending on the parameter.
+        //The speed will not go beyond SHIP_MIN_SPEED or SHIP_MAX_SPEED.
+        var setSpeed = function(direction) {
+            switch (direction) {
+                //Increase speed and close wings
+                case INCREASE:
+                    if (shipParams.speed < c.SHIP_MAX_SPEED) {
+                        shipParams.speed += c.SHIP_SPEED_STEP;
+                        shipParams.wingRot -= c.WING_ROT_STEP;
+                    }
+                    break;
+                //Decrease speed and open wings
+                case DECREASE:
+                    if (shipParams.speed > c.SHIP_MIN_SPEED) {
+                        shipParams.speed -= c.SHIP_SPEED_STEP;
+                        shipParams.wingRot += c.WING_ROT_STEP;
+                    }
+            }
+        };
+        
+        // USER INPUT HANDLERS *************************************************
+        // *********************************************************************
+        
+        //Looks at which keyboard are being pressed and performs the
+        //appropriate action.
+        var readKeyboard = function() {
+            shipParams.moveX = shipParams.moveY = false;
+            // ***** SPEED CONTROL *****
+            //Space bar
+            if (keys[KEY_FAST]) {
+                setSpeed(INCREASE);
+            }
+            else {
+                setSpeed(DECREASE);
+            }
+            
+            // ***** SPIN CONTROL *****
+            //Spin left and spin right
+            if (keys[KEY_SPIN_CC] && keys[KEY_SPIN_C]) {
+                //Do nothing. This allows for a spin to be paused in place
+            }
+            //Spin left
+            else if (keys[KEY_SPIN_CC]) {
+                setSpin(LEFT);
+            }
+            //Spin right
+            else if (keys[KEY_SPIN_C]) {
+                setSpin(RIGHT);
+            }
+            //Unspin
+            else {
+                shipParams.spin = false;
+            }
+            
+            // ***** ROLL CONTROL *****
+            //Roll left and roll right
+            if (keys[KEY_ROLL_CC] && keys[KEY_ROLL_C]) {
+                //Do nothing. This allows for a roll to be paused in place
+            }
+            //Roll left
+            else if (keys[KEY_ROLL_CC]) {
+                setRoll(LEFT);
+            }
+            //Roll right
+            else if (keys[KEY_ROLL_C]) {
+                setRoll(RIGHT);
+            }
+            //Unroll
+            else {
+                shipParams.roll = false;
+            }
+            
+            // ***** MOVEMENT CONTROL *****
+            //All arrow keys
+            if (keys[KEY_MOVE_L] && keys[KEY_MOVE_U] && keys[KEY_MOVE_R] && keys[KEY_MOVE_D]) {
+                //Do nothing
+            }
+            //Left-Up-Right
+            else if (keys[KEY_MOVE_L] && keys[KEY_MOVE_U] && keys[KEY_MOVE_R]) {
+                setPosition(UP);
+                setCamPosition(UP);
+            }
+            //Left-Right-Down
+            else if (keys[KEY_MOVE_L] && keys[KEY_MOVE_R] && keys[KEY_MOVE_D]) {
+                setPosition(DOWN);
+                setCamPosition(DOWN);
+            }
+            //Left-Up-Down
+            else if (keys[KEY_MOVE_L] && keys[KEY_MOVE_U] && keys[KEY_MOVE_D]) {
+                setPosition(LEFT);
+                setCamPosition(LEFT);
+            }
+            //Up-Right-Down
+            else if (keys[KEY_MOVE_U] && keys[KEY_MOVE_R] && keys[KEY_MOVE_D]) {
+                setPosition(RIGHT);
+                setCamPosition(RIGHT);
+            }
+            //Left-Right
+            else if (keys[KEY_MOVE_L] && keys[KEY_MOVE_R]) {
+                //Do nothing
+            }
+            //Left-Up
+            else if (keys[KEY_MOVE_L] && keys[KEY_MOVE_U]) {
+                setPosition(LEFT);
+                setCamPosition(LEFT);
+                setPosition(UP);
+                setCamPosition(UP);
+            }
+            //Left-Down
+            else if (keys[KEY_MOVE_L] && keys[KEY_MOVE_D]) {
+                setPosition(LEFT);
+                setCamPosition(LEFT);
+                setPosition(DOWN);
+                setCamPosition(DOWN);
+            }
+            //Up-Right
+            else if (keys[KEY_MOVE_U] && keys[KEY_MOVE_R]) {
+                setPosition(UP);
+                setCamPosition(UP);
+                setPosition(RIGHT);
+                setCamPosition(RIGHT);
+            }
+            //Up-Down
+            else if (keys[KEY_MOVE_U] && keys[KEY_MOVE_D]) {
+                //Do nothing
+            }
+            //Right-Down
+            else if (keys[KEY_MOVE_R] && keys[KEY_MOVE_D]) {
+                setPosition(RIGHT);
+                setCamPosition(RIGHT);
+                setPosition(DOWN);
+                setCamPosition(DOWN);
+            }
+            //Left
+            else if (keys[KEY_MOVE_L]) {
+                setPosition(LEFT);
+                setCamPosition(LEFT);
+            }
+            //Up
+            else if (keys[KEY_MOVE_U]) {
+                setPosition(UP);
+                setCamPosition(UP);
+            }
+            //Right
+            else if(keys[KEY_MOVE_R]) {
+                setPosition(RIGHT);
+                setCamPosition(RIGHT);
+            }
+            //Down
+            else if (keys[KEY_MOVE_D]) {
+                setPosition(DOWN);
+                setCamPosition(DOWN);
+            }
+            //Neutral
+            else {
+                //Do nothing
+            }
+            
+            //Automatic position/rotation correction
+            neutralizeRot();
+        };
+        
+        // Keyboard Listeners
+        document.addEventListener('keydown', function(e) {
+            keys[e.keyCode] = true;
+        });
+        
+        document.addEventListener('keyup', function(e) {
+            keys[e.keyCode] = false;
+        });
+        
+        // GUI Listeners
+        minSpeed.onChange(function(value) {
+            c.SHIP_SPEED_STEP = (c.SHIP_MAX_SPEED - c.SHIP_MIN_SPEED) / c.SHIP_ANIMATION_SPEED;
+        });
+        
+        maxSpeed.onChange(function(value) {
+            c.SHIP_SPEED_STEP = (c.SHIP_MAX_SPEED - c.SHIP_MIN_SPEED) / c.SHIP_ANIMATION_SPEED;
+        });
+        
+        camTrail.onChange(function(value) {
+            camParams.z = ship.position.z + c.CAM_TRAIL_DISTANCE;
+        });
+        
+        camType.onFinishChange(function(value) {
+            if (camParams.type === CAM_FIRST) {
+                ship.add(camera);
+                //THESE VALUES ARE AN OFFSET BASED ON THE SHIP MODEL
+                camera.position.x = c.CAM_FIRST_X;
+                camera.position.y = c.CAM_FIRST_Y;
+                camera.position.z = c.CAM_FIRST_Z;
+            }
+            else if (camParams.type === CAM_THIRD) {
+                ship.remove(camera);
+            }
+        });
+        
+        animateSpeed.onFinishChange(function(value) {
+            c.SHIP_SPEED_STEP = (c.SHIP_MAX_SPEED - c.SHIP_MIN_SPEED) / c.SHIP_ANIMATION_SPEED;
+            c.WING_ROT_STEP = c.WING_MAX_ROTATION / c.SHIP_ANIMATION_SPEED;
+        });
+        
+        
+        var update = function() {
+            //Move forward
+            shipParams.z -= shipParams.speed * c.SHIP_MIN_SPEED;
+            camParams.z -= shipParams.speed * c.SHIP_MIN_SPEED;
+            
+            //Keep rotation in range of (-360, 360)
+            shipParams.rotX %= 360;
+            shipParams.rotZ %= 360;
+            camParams.rotX %= 360;
+            camParams.rotZ %= 360;
+            
+            //Disable camera controls if in first person
+            if (camParams.type !== CAM_FIRST) {
+                camera.position.set(camParams.x, camParams.y, camParams.z);
+                camera.rotation.set(camParams.rotX * Math.PI / 180, 0, camParams.rotZ * Math.PI / 180);
+            }
+            
+            //Set ship and wing position/rotation data
+            ship.position.set(shipParams.x, shipParams.y, shipParams.z);
+            ship.rotation.set(shipParams.rotX * Math.PI / 180, 0, shipParams.rotZ * Math.PI / 180);
+            wing1.rotation.z = -(shipParams.wingRot * Math.PI / 180);
+            wing2.rotation.z = shipParams.wingRot * Math.PI / 180;
+            
+            //Collisions
+            /*var originPoint = ship.position.clone();
+            for (var vertexIndex = 0; vertexIndex < ship.geometry.vertices.length; vertexIndex++)
+            {
+		var localVertex = ship.geometry.vertices[vertexIndex].clone();
+		var globalVertex = localVertex.applyMatrix4( ship.matrix );
+		var directionVector = globalVertex.sub( ship.position );
+		
+		var ray = new THREE.Raycaster( originPoint, directionVector.clone().normalize() );
+		var collisionResults = ray.intersectObjects( collidableMeshList );
+		if ( collisionResults.length > 0 && collisionResults[0].distance < directionVector.length() ) {
+                    appendText(" Hit ");
+                    alert("Hit");
+                }
+            }*/
+        };
+        
+        // Rendering function. Takes position and rotation data, and moves the
+        // ship and camera objects in the scene.
+        var render = function () {
+            requestAnimationFrame(render);
+            renderer.render(scene, camera);
+            
+            readKeyboard();
+            update();
+        };
+        render();
+        
+    </script>
+</body>
+</html>
